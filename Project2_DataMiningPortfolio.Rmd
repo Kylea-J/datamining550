@@ -1,0 +1,199 @@
+---
+title: "Project  2 Data Mining Portfolio"
+author: "Kylea Johnson"
+date: "2023-03-13"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import and Setup
+
+```{r }
+#load the mlbench package which has the BreastCancer data set
+require(mlbench)
+
+# if you don't have any required package, use the install.packages() command
+# load the data set
+data(BreastCancer)
+ls(BreastCancer)
+# some algorithms don't like missing values, so remove rows with missing values
+BreastCancer <- na.omit(BreastCancer) 
+# remove the unique identifier, which is useless and would confuse the machine learning algorithms
+BreastCancer$Id <- NULL 
+head(BreastCancer)
+str(BreastCancer)
+df2 <- data.frame(sapply(BreastCancer[1:9], function(x) as.numeric(as.character(x))))
+z <- scale(df2[,1:9],center=TRUE,scale=TRUE)
+head(z)
+
+
+library(e1071)
+library(nnet)
+library(neuralnet)
+library(caret)
+library(gains)
+library(forecast)
+library(rpart)
+library(rpart.plot)
+library(dplyr)
+library(ggplot2)
+library(readxl)
+library(plyr)
+library(tidyverse)
+library(car)
+```
+
+#SVM
+
+```{r }
+# SUPPORT VECTOR MACHINE
+
+mysvm <- svm(Class ~ ., BreastCancer)
+mysvm.pred <- predict(mysvm, BreastCancer)
+table(mysvm.pred,BreastCancer$Class)
+```
+
+#NAIVE BAYES
+
+```{r }
+#Naive Bayes
+mynb <- naiveBayes(Class ~ ., BreastCancer)
+## predict probabilities
+mynb.pred <- predict(mynb, BreastCancer)
+## predict class membership
+mynb.pred <- predict(mynb, BreastCancer, type= "class")
+confusionMatrix(mynb.pred, as.factor(BreastCancer$Class))
+```
+
+#NEURAL NET
+
+```{r }
+#Neural Net
+str(BreastCancer)
+for (i in c(1:9)){
+BreastCancer[,i] <-(as.numeric(BreastCancer[,i])-min(as.numeric(BreastCancer[,i]))) /
+  (max(as.numeric(BreastCancer[,i]))-min(as.numeric(BreastCancer[,i])))
+}
+mynnet <- neuralnet(Class ~ ., BreastCancer, hidden=c(5,4))
+head(BreastCancer)
+str(mynnet)
+mynnet.pred <- neuralnet::compute(mynnet, BreastCancer)
+
+#Get the actual classes out
+predicted.class <- apply(mynnet.pred$net.result,1,which.max)-1
+
+mynnet.pred <- predicted.class
+```
+
+#DECISION TREE
+
+```{r }
+library(MASS)
+
+#Decision trees
+library(rpart)
+mytree <- rpart(Class ~ ., BreastCancer)
+plot(mytree); text(mytree) 
+summary(mytree)
+mytree.pred <- predict(mytree,BreastCancer,type="class")
+table(mytree.pred,BreastCancer$Class)
+```
+
+#LOOCV
+
+```{r }
+# Leave-1-Out Cross Validation (LOOCV)
+ans <- numeric(length(BreastCancer[,1]))
+for (i in 1:length(BreastCancer[,1])) {
+  mytree <- rpart(Class ~ ., BreastCancer[-i,])
+  mytree.pred <- predict(mytree,BreastCancer[i,],type="class")
+  ans[i] <- mytree.pred
+}
+ans <- factor(ans,labels=levels(BreastCancer$Class))
+table(ans,BreastCancer$Class)
+```
+
+#QUADRATIC DISCRIMINANT ANALYSIS
+
+```{r }
+#Quadratic Discriminant Analysis
+library(MASS)
+
+myqda <- qda(Species ~ ., iris)
+myqda.pred <- predict(myqda, iris)
+table(myqda.pred$class,iris$Species)
+
+myqda <- qda(Class ~ ., BreastCancer)
+myqda.pred <- predict(myqda, BreastCancer)
+head(myqda.pred$class)
+table(myqda.pred$class,BreastCancer$Class)
+```
+
+# RDA
+
+```{r }
+#Regularised Discriminant Analysis
+#install.packages("rda")
+library(rda)
+#myrda <- rda(Class ~ ., BreastCancer)
+############### add back in if can
+#myrda.pred <- predict(myrda, BreastCancer)
+
+#table(myrda.pred$class,BreastCancer$Class)
+```
+
+# RANDOM FOREST
+
+```{r }
+#Random Forests
+#install.packages("randomForest")
+library(randomForest)
+myrf <- randomForest(Class ~ ., BreastCancer)
+
+
+myrf.pred <- predict(myrf, BreastCancer)
+
+
+head(myrf.pred)
+table(myrf.pred, BreastCancer$Class)
+```
+
+## COMBINE RESULTS
+```{r }
+#Combine all the predictions
+combine.classes<-data.frame(myrf.pred, myqda.pred$class, myqda.pred$class, 
+                            mytree.pred,mynnet.pred,mysvm.pred, mynb.pred)
+
+##Combine
+head(combine.classes)
+head(myrf.pred)
+
+#Convert the naive bayes and random forest results to 1/0
+
+combine.classes$myrf.pred<-ifelse(combine.classes$myrf.pred=="benign", 0, 1)
+combine.classes$mynb.pred<-ifelse(combine.classes$mynb.pred=="benign", 0, 1)
+
+#Convert the other categorical results to numeric
+
+combine.classes[,2]<-ifelse(combine.classes[,2]=="benign", 0, 1)
+combine.classes[,3]<-ifelse(combine.classes[,3]=="benign", 0, 1)
+combine.classes[,4]<-ifelse(combine.classes[,4]=="benign", 0, 1)
+combine.classes[,5]<-ifelse(combine.classes[,5]=="benign", 0, 1)
+combine.classes[,6]<-ifelse(combine.classes[,6]=="benign", 0, 1)
+str(combine.classes)
+```
+#Finally, use majority vote of >4 to classify
+
+```{r }
+#Conduct Majority Vote
+combine.classes$majority.vote<- rowSums(combine.classes)
+
+combine.classes$class <-ifelse(combine.classes$majority.vote>=4, "malignant", "benign")
+table(BreastCancer$Class, combine.classes$class )
+
+```
+
+
